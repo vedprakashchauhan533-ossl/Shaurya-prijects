@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId
+        && incoming().userId == userId
+        && incoming().displayName is string && incoming().displayName.size() <= 100
+        && incoming().phoneNumber is string && incoming().phoneNumber.size() <= 30;
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Posts
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(postId)
+        && incoming().authorId == request.auth.uid
+        && incoming().content is string && incoming().content.size() <= 5000
+        && incoming().imageUrls is list && incoming().imageUrls.size() <= 2;
+      allow update: if isSignedIn() && (
+        // Author updating their post
+        (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId) ||
+        // Other users liking/unliking or commenting
+        (incoming().diff(existing()).affectedKeys().hasAny(['likesCount', 'likedBy', 'commentsCount']))
+      );
+      allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(commentId)
+          && incoming().authorId == request.auth.uid
+          && incoming().content is string && incoming().content.size() <= 1000;
+        allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+      }
+    }
+
+    // Direct Conversations
+    match /conversations/{conversationId} {
+      allow read: if isSignedIn() && (request.auth.uid in resource.data.participantIds);
+      allow create: if isSignedIn() && isValidId(conversationId)
+        && (request.auth.uid in incoming().participantIds);
+      allow update: if isSignedIn() && (request.auth.uid in resource.data.participantIds);
+      allow delete: if isSignedIn() && (request.auth.uid in resource.data.participantIds);
+
+      // Direct Messages inside a Conversation
+      match /messages/{messageId} {
+        allow read: if isSignedIn()
+          && (request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds);
+        allow create: if isSignedIn() && isValidId(messageId)
+          && (request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds);
+        allow update: if isSignedIn()
+          && (request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'seenAt']);
+      }
+    }
+  }
+}

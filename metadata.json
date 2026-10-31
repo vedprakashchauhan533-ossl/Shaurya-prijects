@@ -1,0 +1,6 @@
+{
+  "name": "VLITS",
+  "description": "Clean, distraction-free social networking and real-time chatting platform for teenagers, entrepreneurs, and business leaders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
